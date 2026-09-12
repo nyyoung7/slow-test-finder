@@ -39,6 +39,24 @@ Output is one line per test, slowest first:
 By default it prints the top 10. Use `-n` to change that, or `-n 0` to print
 every test that ran.
 
+Pass `-json` to get the same results as a JSON array instead, for feeding
+into another tool:
+
+```
+go test -json ./... | slowtest -json
+```
+
+```json
+[
+  {
+    "Package": "example.com/pkg/store",
+    "Test": "TestStore_ConcurrentWrites",
+    "Action": "pass",
+    "Elapsed": 1.842
+  }
+]
+```
+
 ## Building
 
 ```

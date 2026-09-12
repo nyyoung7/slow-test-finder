@@ -30,8 +30,9 @@ type testResult struct {
 
 func main() {
 	n := flag.Int("n", 10, "number of slowest tests to print (0 for all)")
+	jsonOut := flag.Bool("json", false, "print results as a JSON array instead of text")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: slowtest [-n count] [file]\n\n")
+		fmt.Fprintf(os.Stderr, "usage: slowtest [-n count] [-json] [file]\n\n")
 		fmt.Fprintf(os.Stderr, "reads go test -json output from file, or from stdin if no file is given\n")
 		flag.PrintDefaults()
 	}
@@ -58,6 +59,16 @@ func main() {
 
 	if *n > 0 && *n < len(results) {
 		results = results[:*n]
+	}
+
+	if *jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(results); err != nil {
+			fmt.Fprintln(os.Stderr, "slowtest:", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	for _, res := range results {
