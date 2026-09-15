@@ -28,11 +28,23 @@ type testResult struct {
 	Elapsed float64
 }
 
+// packageResult is the package-level pass/fail/skip event go test -json
+// emits once per package. Its Elapsed is the total wall-clock time for that
+// package's test run, which is what "slowest package" actually means -
+// summing individual test elapsed times would overcount time spent in
+// parallel subtests.
+type packageResult struct {
+	Package string
+	Action  string
+	Elapsed float64
+}
+
 func main() {
 	n := flag.Int("n", 10, "number of slowest tests to print (0 for all)")
 	jsonOut := flag.Bool("json", false, "print results as a JSON array instead of text")
+	byPkg := flag.Bool("bypkg", false, "group and sum elapsed time by package instead of listing individual tests")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: slowtest [-n count] [-json] [file]\n\n")
+		fmt.Fprintf(os.Stderr, "usage: slowtest [-n count] [-json] [-bypkg] [file]\n\n")
 		fmt.Fprintf(os.Stderr, "reads go test -json output from file, or from stdin if no file is given\n")
 		flag.PrintDefaults()
 	}
@@ -45,11 +57,17 @@ func main() {
 	}
 	defer closeFn()
 
-	results, err := parse(r)
+	results, packages, err := parse(r)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "slowtest:", err)
 		os.Exit(1)
 	}
+
+	if *byPkg {
+		printPackages(packages, *n, *jsonOut)
+		return
+	}
+
 	if len(results) == 0 {
 		fmt.Fprintln(os.Stderr, "slowtest: no test results found in input")
 		os.Exit(1)
@@ -76,6 +94,33 @@ func main() {
 	}
 }
 
+func printPackages(packages []packageResult, n int, jsonOut bool) {
+	if len(packages) == 0 {
+		fmt.Fprintln(os.Stderr, "slowtest: no package results found in input")
+		os.Exit(1)
+	}
+
+	sort.Slice(packages, func(i, j int) bool { return packages[i].Elapsed > packages[j].Elapsed })
+
+	if n > 0 && n < len(packages) {
+		packages = packages[:n]
+	}
+
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(packages); err != nil {
+			fmt.Fprintln(os.Stderr, "slowtest:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	for _, pkg := range packages {
+		fmt.Printf("%8.3fs  %-4s  %s\n", pkg.Elapsed, pkg.Action, pkg.Package)
+	}
+}
+
 // openInput picks stdin when no path is given (or the path is "-"), and a
 // regular file otherwise. That's the one thing this tool needs to get right.
 func openInput(args []string) (io.Reader, func() error, error) {
@@ -89,11 +134,12 @@ func openInput(args []string) (io.Reader, func() error, error) {
 	return f, f.Close, nil
 }
 
-// parse reads newline-delimited JSON test events and keeps one result per
-// completed test (pass, fail, or skip). Build output, "run" events, and
-// package-level events (no Test field) are dropped.
-func parse(r io.Reader) ([]testResult, error) {
+// parse reads newline-delimited JSON test events and splits them into
+// per-test results and per-package results. Build output and "run" events
+// are dropped.
+func parse(r io.Reader) ([]testResult, []packageResult, error) {
 	var results []testResult
+	var packages []packageResult
 	dec := json.NewDecoder(bufio.NewReader(r))
 	for {
 		var ev testEvent
@@ -102,9 +148,17 @@ func parse(r io.Reader) ([]testResult, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("decoding test event: %w", err)
+			return nil, nil, fmt.Errorf("decoding test event: %w", err)
 		}
 		if ev.Test == "" {
+			switch ev.Action {
+			case "pass", "fail", "skip":
+				packages = append(packages, packageResult{
+					Package: ev.Package,
+					Action:  ev.Action,
+					Elapsed: ev.Elapsed,
+				})
+			}
 			continue
 		}
 		switch ev.Action {
@@ -117,5 +171,5 @@ func parse(r io.Reader) ([]testResult, error) {
 			})
 		}
 	}
-	return results, nil
+	return results, packages, nil
 }

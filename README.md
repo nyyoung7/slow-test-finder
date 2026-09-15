@@ -57,6 +57,20 @@ go test -json ./... | slowtest -json
 ]
 ```
 
+Pass `-bypkg` to see which packages are slow instead of which tests are slow.
+This uses the package-level elapsed time `go test -json` reports (the total
+wall-clock time for that package's run), not a sum of individual test times,
+so it stays accurate when tests run in parallel:
+
+```
+go test -json ./... | slowtest -bypkg
+```
+
+```
+   4.210s  pass  example.com/pkg/store
+   1.005s  pass  example.com/pkg/api
+```
+
 ## Building
 
 ```
@@ -67,7 +81,7 @@ No third-party dependencies, standard library only.
 
 ## Notes
 
-Only `pass`, `fail`, and `skip` events with a `Test` field are counted; build
-output and package-level events are ignored. If a package fails to build,
-`go test -json` won't emit per-test events for it, so those failures won't
-show up here.
+Only `pass`, `fail`, and `skip` events are counted. Events with a `Test`
+field feed the default per-test output; events without one (package-level
+summaries) feed `-bypkg`. If a package fails to build, `go test -json` won't
+emit either kind of event for it, so those failures won't show up here.
